@@ -1,9 +1,7 @@
-import dotenv from 'dotenv'
-import { z } from 'zod'
+import { loadServerConfig } from './config.ts'
 import { app } from './app.ts'
 
-dotenv.config({ quiet: true })
-const port = z.coerce.number().int().min(1).max(65535).default(3000).parse(process.env.PORT)
+const { port } = loadServerConfig()
 const host = '127.0.0.1'
 
 app.listen(port, host, (error) => {

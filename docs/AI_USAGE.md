@@ -24,3 +24,19 @@ The user specified the following deliverables.
 - Express route definitions live separately from startup. Vitest exercises the same app over HTTP on an ephemeral port without requiring either development server. Native fetch supplies the HTTP client.
 - Zod validates the backend port. The example reserves the two future Wix configuration names. No runtime code reads Wix credentials or calls Wix in this stage.
 - Concurrently starts and stops both development processes. Oxlint checks TypeScript and TSX with warnings treated as failures. The screenshot directory contains a Git placeholder so a fresh clone includes it.
+
+## Stage 2 assignment prompt (summary)
+
+Continue the committed foundation with a server-side Wix REST client and the first read-only contacts route. Follow the four linked official REST references and the supplied anonymized response. Keep existing architecture and the health test. Defer search, contact mutations, the frontend dashboard, storage, OAuth, and webhooks.
+
+The user requested workspace-independent dotenv and Zod configuration for the API key, site ID, and port, plus a useful error when Wix settings are missing. Use native fetch, the raw key and site header, and a timeout. Preserve useful status and request ID information for Wix errors. Protect credentials and private contact data, and leave the user's actual environment file untouched.
+
+Expose paged contact queries at `GET /api/contacts` using `POST /contacts/v4/contacts/query`. Validate limit and offset locally with defaults of 10 and 0 and a local limit cap of 100. Support sparse and extensible Wix responses. Preserve ID and revision and select only the dashboard's personal, company, timestamp, and membership fields.
+
+Use fictional contacts and dummy credentials to test request construction, pagination, sparse and empty results, configuration, upstream errors, timeout, malformed responses, and leakage. Preserve the independent verification supplied with the prompt. Update setup, curl examples, authentication references, troubleshooting, and testing records. Run tests, lint, typecheck, and build, review the diff, and commit as `feat: implement Wix API client and contacts query`.
+
+### AI-generated implementation
+
+Codex wrote the config loader, transport, schemas, mapping, route, and tests. The environment path is relative to the server module so source and compiled startup resolve the same file. Only startup loads dotenv. The tests disable Vite environment-file discovery, stub the credential variables, and replace outgoing fetch. They exercise Express over loopback.
+
+The transport keeps its origin fixed, declines redirects, and applies the deadline to both fetch and response consumption. Public errors are assembled from fixed messages and bounded diagnostic fields. The service accepts unknown Wix fields and explicitly selects browser-visible data. An absent revision stays null. Membership is based on the member ID in the supplied verified example. The testing record distinguishes the user's independent observations from Codex's automated checks.
