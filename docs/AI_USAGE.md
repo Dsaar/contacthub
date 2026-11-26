@@ -53,4 +53,24 @@ Codex extended the contacts service, router and existing transport. The Wix refe
 
 Application choices include GUID validation, common phone formatting and extensions, explicit JSON null for clearing, a 16 KiB JSON limit, local Host/Origin checks, and no mutation retries. Member protections use the existing member ID signal and Wix's definitive rejection codes. No private upstream payloads are included in public errors. The README documents remaining limits on identity, clearing and public deployment.
 
-Codex wrote the mocked HTTP tests and disposable-contact shell procedure. The shell procedure was exercised against a mocked transport only. The user independently verified the previous live query stage. Independent live CRUD verification is pending. See [Testing](TESTING.md).
+Codex wrote the mocked HTTP tests and disposable-contact shell procedure. The shell procedure was exercised against a mocked transport only. The user independently verified the previous live query stage. At the end of stage 3, independent live CRUD verification was pending. The subsequent results are in [Testing](TESTING.md).
+
+## Stage 4 dashboard assignment (prompt summary)
+
+Replace the placeholder with a light, responsive React and Tailwind dashboard for the existing real-data backend. Use a typed relative API client for health and all contacts operations. Implement connection, loading, empty, success, and error states, a paged contact directory, search across Wix records, and secondary communication details. Verify the V4 query and phone schemas and preserve country metadata without guessing missing information.
+
+Build accessible add, edit, and delete dialogs with sparse inputs, changed-field PATCH requests, explicit clears, member restrictions, latest-revision retrieval, and user-controlled conflict review. Protect against stale reads, accidental deletion and automatic write retries. Keep data and credentials out of browser storage. Keep the application local and leave the user's environment file untouched. Preserve the previous 109 tests, add frontend and backend regressions, check responsive rendering with mock data, update the documentation, review the diff, commit the stage and stop.
+
+### Decisions and evidence
+
+Codex selected one Wix-supported prefix field per search, using an allowlist to build the server-side filter before paging. The global total is separate from the filtered total. Abort signals and response checks discard stale reads. An empty-page boundary handles an unknown total. The editor compares against its loaded baseline, carries forward local edits on conflict, and requires review of current server values before submitting a new revision. The phone additions are optional and preserve the earlier response fields. The UI never manufactures an international number.
+
+Codex implemented and tested the dashboard, the scoped search and the phone metadata changes. jsdom and React Testing Library were added for frontend tests. jsdom requires Node 24.15 or newer on the supported Node 24 line. Lucide supplies the UI icons. The user independently supplied the November 26 live backend results. The separate Chrome rendering check used a mocked local API. No live frontend mutations or Wix dashboard inspection were performed by Codex. [Testing record](TESTING.md)
+
+## Vite proxy write investigation
+
+The user reported successful live contact listing and an Add Contact 403 on both local frontend addresses. They supplied Chrome DevTools headers showing a same-origin JSON request on port 5173 and an Express JSON response. They asked for a real proxy reproduction, a narrow fix, regression coverage, and a pause before committing for independent verification.
+
+Codex located the rejection in the contacts router and inspected Vite's installed proxy implementation. An isolated Vite-to-Express reproduction confirmed that the string proxy target rewrote Host to the API socket while preserving Origin. No development environment file or live Wix credential was needed. The earlier browser rendering check intercepted the application API before the proxy, and the direct curl checks connected straight to Express. Neither exercised this hop.
+
+Codex changed the Vite rule to an explicit object with `changeOrigin: false`. Preserving the original local Host keeps the existing backend authority check effective without allowing extra origin/host combinations or trusting forwarding metadata. The new regression suite verifies both local authorities across all three write methods, direct curl, and rejection cases. All 152 tests and the three static/build checks passed. Code and documentation were left uncommitted for the user's post-fix browser check. [Header capture and test results](TESTING.md)

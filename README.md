@@ -1,10 +1,10 @@
 # ContactHub
 
-ContactHub is an external contacts dashboard for a Wix Developer Relations Expert interview assignment. The current stage provides a paginated contacts API with individual retrieval, creation, editing, and deletion and the React placeholder. Wix owns the contact records.
+ContactHub is an external contacts dashboard for a Wix Developer Relations Expert interview assignment. The React dashboard lists, searches, creates, edits, and deletes contacts through a local Express API. Wix owns the contact records.
 
 ## Run locally
 
-Use Node.js 24.12 or later in the 24.x line and npm 11 or later. From the repository root, select the project runtime before installing dependencies.
+Use Node.js 24.15 or later in the 24.x line and npm 11 or later. From the repository root, select the project runtime before installing dependencies.
 
 ```sh
 nvm install
@@ -31,6 +31,33 @@ npm run dev
 ```
 
 Open [ContactHub](http://127.0.0.1:5173). Both development servers bind to IPv4 loopback. Ctrl+C stops both. The health route works with blank Wix settings.
+
+## Using the dashboard
+
+Open the directory to see contact names, primary email and phone, company, job title, and member status. Select a name to see all available emails and phone numbers. On narrow screens each table row becomes a labeled card. Desktop and mobile examples use fictional browser fixtures. [Desktop preview](docs/screenshots/dashboard-desktop-mocked.png) · [Mobile preview](docs/screenshots/dashboard-mobile-mocked.png)
+
+The integration indicator reflects the directory request to Wix. It shows loading during a request, connected after success, disconnected for missing credentials, rejected credentials or an unreachable local API, and failed for other request errors. Refresh retries a read. The global count uses the unfiltered total. The footer describes the current query. Unknown totals display as unavailable. Pages contain 10, 25, or 50 contacts. When both the total and next-page flag are unknown, a full page permits probing the next page. An empty page returns the user to a valid offset.
+
+**Search** starts 300 ms after typing stops. Pick first name, last name, primary email, primary phone, company, or job title. For example, `GET /api/contacts?field=company&q=Ac&limit=10&offset=0` sends `query.filter = {"info.company":{"$startsWith":"Ac"}}` to Wix alongside paging. Wix filters the site's contacts before pagination. Changing the term or field resets the offset. Matching is a prefix on one field. Full-name phrases spanning fields, arbitrary substrings, and secondary email/phone searches are outside this search contract. Wix controls matching and case behavior. [Wix Query Contacts, supported REST filters](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/query-contacts)
+
+**Add and edit** accept first name, last name, email, phone, company, and job title. Creation needs at least a name, email, or phone. The editor fetches the latest individual record and sends only changed fields plus the original revision. Clearing a populated field sends JSON null. On a revision conflict, the draft stays open. Choose **Load latest version**, compare your edits with the displayed Wix values, acknowledge review, and save explicitly. For members, email editing is disabled and the field is excluded from PATCH.
+
+**Delete** requires confirmation naming the selected contact. A lock explains the member restriction. The server still checks Wix's other deletion restrictions. Mutation errors keep the dialog open. Error details include the safe upstream request ID when available. A timeout can leave the outcome of a write unknown. Refresh and check the contact before repeating it.
+
+### Phone representation
+
+The independent backend check observed an international input returned in national display format. Wix documents a display phone, optional ISO alpha-2 country code, and a generated E.164 number when enough valid information is available. The old mapper discarded country and E.164 information on the way to the browser. The API retains the existing display strings and adds optional `phoneDetails` entries containing `phone`, `countryCode`, and `e164Phone` when Wix provides metadata. The dashboard prefers Wix's E.164 value for the main number and exposes the supplied display form and metadata in details. It never derives a dialing prefix from a country label. The user's anonymized verification did not establish which raw metadata Wix supplied in that transaction. [Wix Query Contacts response schema](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/query-contacts) · [Contact V4 object](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/contact-object)
+
+### Frontend architecture
+
+`client/src/api.ts` uses relative same-origin `/api` requests and handles JSON results, structured errors, and empty DELETE responses. `types.ts` defines the browser contracts. `useDirectory.ts` owns query state, paging, counts, request cancellation, and refresh. `App.tsx` assembles the page. `Directory.tsx`, `ContactEditor.tsx`, and `ContactDialogs.tsx` handle rows, forms, details, and confirmation. `ui.tsx` supplies native modal dialogs and accessible error feedback. React holds draft and contact data in memory. The Wix key stays in Express.
+
+### Independent browser check
+
+1. Start both workspaces with the commands above and open the local dashboard. Verify the integration indicator, count, detail view, page size, and a known field prefix. Clear the search to restore the list.
+2. Create a **new fictional contact with a unique email**. Open that contact's details, edit its job title, refresh, and confirm its email and phone were preserved. Delete only this disposable contact using the confirmation dialog. Keep the existing member/contributor record out of mutation tests.
+3. To check concurrency, open the disposable contact's editor in two tabs before deleting it. Save in the first tab, then try a different edit in the second. Confirm that the draft survives and that saving requires loading and reviewing the latest version.
+4. Try the same list on a narrow screen. Use Tab and Escape in a dialog and check that focus returns to its trigger. Visual confirmation in the Wix dashboard can be recorded independently without sharing private contact details.
 
 ## List requests and authentication
 
@@ -77,7 +104,7 @@ curl -sS -o /dev/null -w 'HTTP %{http_code}\n' 'http://127.0.0.1:5173/api/contac
 | `npm run build` | Bundle the client to `client/dist/` and compile the server to `server/dist/` |
 | `npm run lint` | Run Oxlint |
 | `npm run typecheck` | Run strict TypeScript checks for both workspaces |
-| `npm test` | Run Vitest over loopback with mocked Wix responses |
+| `npm test` | Run the frontend DOM and API-client tests plus the backend HTTP suite with mocked Wix responses |
 
 Implementation decisions and verification records are in [AI usage](docs/AI_USAGE.md) and [Testing](docs/TESTING.md).
 
@@ -86,7 +113,7 @@ Implementation decisions and verification records are in [AI usage](docs/AI_USAG
 | Local endpoint | Input | Success |
 | --- | --- | --- |
 | `GET /api/health` | None | 200: `{"status":"ok","service":"contacthub-api"}` |
-| `GET /api/contacts` | Optional `limit` and `offset` as above | 200: `{"contacts":[…],"pagingMetadata":{…}}` |
+| `GET /api/contacts` | Optional `limit`, `offset`, `q`, and `field` | 200: `{"contacts":[…],"pagingMetadata":{…}}` |
 | `GET /api/contacts/:id` | Contact GUID | 200: `{"contact":{…}}`. A merged source can resolve to its target. |
 | `POST /api/contacts` | JSON with one or more identity fields and optional company/job title | 201: `{"contact":{…}}` with the assigned ID and revision |
 | `PATCH /api/contacts/:id` | JSON with the caller's `revision` and at least one editable field | 200: `{"contact":{…}}` with the new revision |
@@ -97,7 +124,7 @@ Create accepts exactly six field names. Each provided value must be a nonblank s
 Example local create body:
 
 ```json
-{"firstName":"Alex","lastName":"Demo","email":"alex.demo@example.com","phone":"+12025550101","company":"ContactHub Demo","jobTitle":"Test Engineer"}
+{"firstName":"Alex","lastName":"Demo","email":"alex.demo@example.com","phone":"+12025550174","company":"ContactHub Demo","jobTitle":"Test Engineer"}
 ```
 
 Example response for create, get or update, using fictional values:
@@ -108,7 +135,7 @@ Example response for create, get or update, using fictional values:
     "id": "00000000-0000-4000-8000-000000000001", "revision": 1,
     "firstName": "Alex", "lastName": "Demo",
     "primaryEmail": "alex.demo@example.com", "emails": ["alex.demo@example.com"],
-    "primaryPhone": "+12025550101", "phones": ["+12025550101"],
+    "primaryPhone": "+12025550174", "phones": ["+12025550174"],
     "company": "ContactHub Demo", "jobTitle": "Test Engineer", "isSiteMember": false,
     "createdDate": "2026-01-01T12:00:00Z", "updatedDate": "2026-01-01T12:00:00Z"
   }
@@ -124,7 +151,7 @@ For the create example, the server sends `POST /contacts/v4/contacts` with this 
   "info": {
     "name": {"first":"Alex","last":"Demo"},
     "emails": {"items":[{"email":"alex.demo@example.com","primary":true}]},
-    "phones": {"items":[{"phone":"+12025550101","primary":true}]},
+    "phones": {"items":[{"phone":"+12025550174","primary":true}]},
     "company": "ContactHub Demo", "jobTitle": "Test Engineer"
   },
   "allowDuplicates": false

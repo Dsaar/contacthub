@@ -62,6 +62,65 @@ Codex ran the following checks with Node 24. The two original test files were pr
 
 Coverage includes exact Wix methods, headers and request bodies, optional fields, lengths, GUIDs, revisions, JSON parsing, duplicate and stale-revision codes, field clearing and list preservation, member and billing restrictions, merged IDs, malformed success results, upstream failures and credential-safe errors. HTTP tests include accepted same-origin writes, rejected foreign Origin/Host and cross-site requests, size limits, and media types. One initial header test failed because the fetch client controlled a header. The final test sends the intended wire headers with Node's HTTP client.
 
-## Stage 3 independent verification pending
+## Independent live backend verification — November 26, 2026
 
-Live individual retrieval and live mutations through ContactHub remain unverified. The README gives commands for an independent run using only a newly created disposable contact. Wix's actual normalization of cleared text, primary reassignment, generated list item IDs, and permission configuration should also be checked on disposable data as relevant. Codex made no live Wix calls during this stage.
+The user ran `scripts/verify-live-crud.sh` against the actual Wix site and reported a successful create, retrieve, update, and delete lifecycle. The separate local API observations below were supplied by the user. Contact IDs, request IDs, contact values, and credentials are omitted.
+
+| Operation | Independently observed |
+| --- | --- |
+| POST a disposable contact | HTTP 201, revision 1 |
+| GET by ID | HTTP 200 |
+| PATCH first name and job title | HTTP 200, revision 2. Last name, email, phone, and company were preserved. |
+| PATCH with stale revision 1 | HTTP 409, `REVISION_CONFLICT` |
+| POST invalid email | HTTP 400, `INVALID_INPUT` |
+| POST an existing email | HTTP 409, `DUPLICATE_CONTACT`. Upstream status and a Wix request ID were present. |
+| DELETE the disposable contact | HTTP 204 |
+| GET after deletion | HTTP 404, `WIX_NOT_FOUND` |
+
+The user also observed an internationally formatted input returned as a national-format phone. Raw metadata for that transaction was not supplied. Wix dashboard visual confirmation is pending.
+
+## Stage 4 automated checks
+
+Codex ran the root commands with Node 24.22.3 and npm 11.19.1.
+
+| Check | Result |
+| --- | --- |
+| `npm test` | 141 passed in five files. The client ran 22 tests and the server ran 119, including the previous 109. |
+| `npm run lint` | Passed with warnings treated as failures. |
+| `npm run typecheck` | Passed for both workspaces, including client tests. |
+| `npm run build` | Vite bundled the dashboard and TypeScript compiled the Express service. |
+
+React Testing Library and jsdom tests mock the local application API. They cover list and optional fields, details, empty/loading/refresh/error states, delayed results, field search, paging with unknown totals, create validation and duplicate failure, edit payloads and deliberate clears, conflict review, member restrictions, deletion failure and confirmation, and recovery from the last row disappearing. API-client tests exercise relative URLs, JSON and 204 handling, malformed mutation confirmations and diagnostics. Backend HTTP tests mock outgoing Wix fetch and check all six filter mappings, invalid search inputs, and phone metadata. The test configurations disable environment-file discovery.
+
+### Actual browser rendering with mocked data
+
+Codex used Playwright with headless Chrome 158.0.8127.37 and the production client bundle on an isolated loopback static server. All application API requests were intercepted and answered with four fictional contacts. External network requests were blocked. The browser exercised desktop and mobile rendering, scoped search, details, member email protection, native dialog Tab/Escape behavior and focus restoration. There were no page exceptions, no horizontal overflow at widths of 320, 390, 768 or 1280 pixels, and zero mutation requests. The screenshots show fictional fixtures. [Desktop](screenshots/dashboard-desktop-mocked.png) · [Mobile](screenshots/dashboard-mobile-mocked.png)
+
+### Pending independent checks
+
+The user subsequently confirmed that the browser retrieved live contacts and reported the write failure investigated below. Live prefix filtering, phone metadata on real responses, and visual confirmation in the Wix dashboard remain outside the reported results. The README includes a disposable-contact procedure.
+
+## Dashboard write failure through the Vite proxy
+
+**Independent discovery.** The user retrieved real Wix contacts in Chrome. Submitting Add Contact returned HTTP 403 with the message “Use the local ContactHub origin for writes.” Both `http://localhost:5173` and `http://127.0.0.1:5173` reproduced the failure. Direct curl CRUD on port 3000 had previously succeeded. DevTools on the numeric address showed a matching browser Host and Origin, the local page Referer, JSON content type, Fetch Metadata values `same-origin` and `cors`, and a JSON response with `X-Powered-By: Express`.
+
+**Isolated reproduction before the fix.** Codex ran the installed Vite 8.3.8 development proxy and the actual Express app on separate temporary loopback sockets. Node's HTTP client sent the reported browser headers for each local authority. Only the proxy destination was pointed at the isolated backend. The test imported the Express app directly, disabled Vite environment-file discovery, and replaced the Wix transport's fetch with a mock. Both POSTs returned `403 ORIGIN_REJECTED` with zero Wix calls.
+
+| Header | Input to Vite | Express received before fix |
+| --- | --- | --- |
+| Host | `localhost:5173` or `127.0.0.1:5173` | `127.0.0.1:55513` for both in the capture. Port 55513 was the isolated backend port. The configured development target uses port 3000. |
+| Origin | `http://` plus the original Host | Same value as input |
+| Referer | Original page URL ending in `/` | Same value as input |
+| Content-Type | `application/json` | Same value as input |
+| Sec-Fetch-Site / Sec-Fetch-Mode | `same-origin` / `cors` | Same values as input |
+| Forwarded / X-Forwarded-Host, -Port, -Proto, -For | Absent | Absent |
+
+Vite expands a string proxy target to an object with `changeOrigin: true`. The contacts middleware accepts a local Host, then requires a supplied Origin to equal `http://` plus that Host. Rewriting the port made that comparison fail. GET bypasses the write guard. Direct curl with a local Host may omit Origin.
+
+**Fix and regression results.** The client proxy uses the same target with explicit `changeOrigin: false`. Express now receives the original frontend Host and matching Origin. Its Host allowlist, exact Origin comparison, and cross-site rejection still apply. CORS and forwarded-header trust settings were left intact.
+
+The two positive integration cases failed on the rewritten Host before the fix. After the fix, all 11 new tests passed. Each local address completed POST (201), PATCH (200), and DELETE (204) through Vite. A direct local curl POST with no Origin returned 201. External, lookalike, null, malformed, wrong-port, mismatched local origins and cross-site requests returned 403 before Wix. The suite uses the client proxy rule and substitutes only the isolated destination, so restoring the original shorthand reproduces the regression.
+
+Final checks: `npm test` passed 152 tests (22 frontend and 130 backend/integration), and lint, typecheck, and build passed. These proxy tests use browser-shaped HTTP requests and mocked Wix. Independent post-fix Chrome-to-live-Wix writes are pending.
+
+**Independent retest.** Restart the development servers with `npm run dev` and reload the dashboard. On each local address, create a fresh fictional contact with a unique email. Confirm POST 201, edit that contact and confirm PATCH 200, then confirm DELETE 204 for that same disposable contact. Leave the existing member/contributor contact alone.

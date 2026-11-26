@@ -11,6 +11,7 @@ const wixContact = z.object({
   revision: integer.optional(),
   createdDate: timestamp,
   updatedDate: timestamp,
+  primaryPhone: z.object({ phone: text, countryCode: text, e164Phone: text }).optional(),
   primaryInfo: z.object({ email: text, phone: text }).optional(),
   info: z.object({
     name: z.object({ first: text, last: text }).optional(),
@@ -18,7 +19,7 @@ const wixContact = z.object({
       items: z.array(z.object({ email: text, tag: text, primary: z.boolean().optional() })).optional(),
     }).optional(),
     phones: z.object({
-      items: z.array(z.object({ phone: text, tag: text, countryCode: text, primary: z.boolean().optional() })).optional(),
+      items: z.array(z.object({ phone: text, tag: text, countryCode: text, e164Phone: text, primary: z.boolean().optional() })).optional(),
     }).optional(),
     company: text,
     jobTitle: text,
@@ -41,13 +42,26 @@ function dashboardContact(contact: z.infer<typeof wixContact>) {
   const { info, primaryInfo } = contact
   const emails = info?.emails?.items ?? []
   const phones = info?.phones?.items ?? []
+  const primaryNumber = contact.primaryInfo?.phone ?? contact.primaryPhone?.phone ?? phones.find(item => item.primary && item.phone)?.phone ?? null
+  const phoneDetails = phones.filter(item => item.phone && (item.e164Phone || item.countryCode)).map(item => ({
+    phone: item.phone!, countryCode: item.countryCode ?? null, e164Phone: item.e164Phone ?? null,
+  }))
+  const primary = contact.primaryPhone
+  if (primaryNumber && (!primary?.phone || primary.phone === primaryNumber) && (primary?.countryCode || primary?.e164Phone)) {
+    const index = phoneDetails.findIndex(item => item.phone === primaryNumber)
+    const detail = { phone: primaryNumber, countryCode: primary.countryCode ?? phoneDetails[index]?.countryCode ?? null,
+      e164Phone: primary.e164Phone ?? phoneDetails[index]?.e164Phone ?? null }
+    if (index < 0) phoneDetails.push(detail)
+    else phoneDetails[index] = detail
+  }
   return {
     id: contact.id,
     revision: contact.revision ?? null,
     firstName: info?.name?.first ?? null,
     lastName: info?.name?.last ?? null,
     primaryEmail: primaryInfo?.email ?? emails.find(item => item.primary && item.email)?.email ?? null,
-    primaryPhone: primaryInfo?.phone ?? phones.find(item => item.primary && item.phone)?.phone ?? null,
+    primaryPhone: primaryNumber,
+    ...(phoneDetails.length ? { phoneDetails } : {}),
     emails: emails.flatMap(item => item.email ? [item.email] : []),
     phones: phones.flatMap(item => item.phone ? [item.phone] : []),
     company: info?.company ?? null,
@@ -58,9 +72,15 @@ function dashboardContact(contact: z.infer<typeof wixContact>) {
   }
 }
 
-export async function queryContacts(paging: { limit: number, offset: number }) {
+export const searchFields = {
+  firstName: 'info.name.first', lastName: 'info.name.last', email: 'primaryInfo.email',
+  phone: 'primaryInfo.phone', company: 'info.company', jobTitle: 'info.jobTitle',
+} as const
+
+export async function queryContacts(paging: { limit: number, offset: number }, term?: string, field: keyof typeof searchFields = 'firstName') {
+  const filter = term ? { [searchFields[field]]: { $startsWith: term } } : undefined
   const { contacts, pagingMetadata } = await wixRequest(
-    '/contacts/v4/contacts/query', 'POST', { query: { paging } }, queryResponse,
+    '/contacts/v4/contacts/query', 'POST', { query: { paging, filter } }, queryResponse,
   )
   const offset = pagingMetadata.offset ?? paging.offset
   const count = pagingMetadata.count ?? contacts.length
@@ -126,7 +146,7 @@ function contactInfo(changes: ContactChanges, contact?: Contact) {
       contact?.info?.emails?.items ?? [], 'email', contact?.primaryInfo?.email, email, item => item.email,
     ) },
     phones: phone === undefined ? undefined : { items: primaryItems(
-      contact?.info?.phones?.items ?? [], 'phone', contact?.primaryInfo?.phone, phone, item => item.phone,
+      (contact?.info?.phones?.items ?? []).map(({ phone, tag, countryCode, primary }) => ({ phone, tag, countryCode, primary })), 'phone', contact?.primaryInfo?.phone, phone, item => item.phone,
     ) },
     company: company === null ? '' : company,
     jobTitle: jobTitle === null ? '' : jobTitle,

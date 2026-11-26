@@ -1,11 +1,13 @@
 import { json, Router, type ErrorRequestHandler, type Response } from 'express'
 import { z } from 'zod'
 import { contactId, createInput, updateInput } from './contact-input.ts'
-import { createContact, deleteContact, getContact, queryContacts, updateContact } from './contacts.ts'
+import { createContact, deleteContact, getContact, queryContacts, searchFields, updateContact } from './contacts.ts'
 import { WixError } from './wix.ts'
 
 const decimal = z.string().regex(/^\d+$/).transform(Number)
 const pagination = z.strictObject({
+  q: z.string().trim().min(1).max(320).optional(),
+  field: z.enum(Object.keys(searchFields) as (keyof typeof searchFields)[]).optional(),
   limit: decimal.pipe(z.int().min(1).max(100)).default(10),
   offset: decimal.pipe(z.int().nonnegative().max(2_147_483_647)).default(0),
 })
@@ -51,8 +53,9 @@ contactsRouter.param('id', (request, response, next, value: string) => {
 contactsRouter.get('/', async (request, response) => {
   const paging = pagination.safeParse(request.query)
   if (!paging.success) return reject(response, 400, 'INVALID_PAGINATION',
-    'Use only limit (1–100) and offset (0–2147483647), each as a single decimal integer.')
-  return response.json(await queryContacts(paging.data))
+    'Check limit (1–100), offset (0–2147483647), search text (1–320 characters), and search field.')
+  const { limit, offset, q, field } = paging.data
+  return response.json(await queryContacts({ limit, offset }, q, field))
 })
 
 contactsRouter.get('/:id', async (request, response) => {

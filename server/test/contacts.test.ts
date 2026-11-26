@@ -185,3 +185,29 @@ it.each(['not json', '{}', '{"contacts":[]}', '{"contacts":{},"pagingMetadata":{
     } })
   },
 )
+
+it.each([
+  ['firstName', 'info.name.first'], ['lastName', 'info.name.last'], ['email', 'primaryInfo.email'],
+  ['phone', 'primaryInfo.phone'], ['company', 'info.company'], ['jobTitle', 'info.jobTitle'],
+])('sends the %s prefix filter to Wix before paging', async (field, path) => {
+  wixFetch.mockResolvedValue(Response.json(emptyPage))
+  expect((await getContacts('?q=Example&field=' + field + '&limit=25&offset=50')).status).toBe(200)
+  expect(JSON.parse(String(wixFetch.mock.calls[0]?.[1]?.body))).toEqual({
+    query: { paging: { limit:25, offset:50 }, filter: { [path!]: { $startsWith:'Example' } } },
+  })
+})
+
+it('keeps Wix-provided phone metadata without inferring a calling code', async () => {
+  wixFetch.mockResolvedValue(Response.json({contacts:[{
+    id:'phone-fixture', primaryInfo:{phone:'202-555-0123'}, primaryPhone:{countryCode:'US',e164Phone:'+12025550123'},
+    info:{phones:{items:[{phone:'202-555-0123',primary:true},{phone:'555-0102',countryCode:'CA'},{phone:'555-0103'}]}},
+  }], pagingMetadata:{count:1}}))
+  const response = await getContacts()
+  expect(await response.json()).toMatchObject({contacts:[{primaryPhone:'202-555-0123',phones:['202-555-0123','555-0102','555-0103'],
+    phoneDetails: [{phone:'555-0102',countryCode:'CA',e164Phone:null},{phone:'202-555-0123',countryCode:'US',e164Phone:'+12025550123'}]}]})
+})
+
+it.each(['field=unsupported&q=foo', 'q=a&q=b', 'q=' + 'x'.repeat(321)])('rejects unsupported search parameters', async query => {
+  expect((await getContacts('?' + query)).status).toBe(400)
+  expect(wixFetch).not.toHaveBeenCalled()
+})
