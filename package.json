@@ -1,0 +1,27 @@
+{
+  "name": "contacthub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "engines": {
+    "node": "^24.12.0",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others --names client,server \"npm run dev -w client\" \"npm run dev -w server\"",
+    "build": "npm run build --workspaces",
+    "lint": "oxlint --deny-warnings client/src client/vite.config.ts server/src server/test",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test -w server"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.4",
+    "concurrently": "10.0.7",
+    "oxlint": "1.95.0",
+    "typescript": "7.0.2"
+  }
+}

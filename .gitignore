@@ -1,0 +1,36 @@
+# Dependencies and package manager caches
+node_modules/
+.npm/
+.pnpm-store/
+
+# Compiled assets, tool caches and test output
+dist/
+build/
+out/
+coverage/
+.nyc_output/
+.vite/
+.vite-temp/
+*.tsbuildinfo
+.eslintcache
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+
+# Runtime and diagnostic output
+logs/
+*.log
+*.pid
+*.pid.lock
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
