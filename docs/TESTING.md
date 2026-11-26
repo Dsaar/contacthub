@@ -44,6 +44,24 @@ Codex ran the final checks on Node.js 24.22.3 and npm 11.19.1.
 | `npm run build` | Vite bundled the client and TypeScript compiled the server. |
 | Configuration lookup | In a temporary directory with a dummy server environment file, the source and compiled loaders both resolved identical settings from root and server working directories. |
 
-## Pending live verification
+## Stage 2 live query verification completed independently
 
-An independent end-to-end call through the new ContactHub route to the real site is pending. With the documented server settings and both development servers running, use the local curl examples in the README. Check status, contact IDs and revisions, the selected dashboard fields and page metadata privately. The automated suite does not call the live Wix API.
+The user reported HTTP 200 for health and for the local contacts query with real Wix data, including through the Vite proxy. A limit of 1 worked. Offset 1 returned an empty list. Both `limit=abc` and `limit=101` returned HTTP 400. The site contained one member/contributor contact. No private contact data was recorded.
+
+## Stage 3 automated verification
+
+Codex ran the following checks with Node 24. The two original test files were preserved. The new suite exercises Express over loopback, with fictional fixtures and all outbound Wix fetch calls mocked. Tests disable dotenv file discovery and do not start the credential-loading entry point.
+
+| Check | Result |
+| --- | --- |
+| `npm test` | 109 passed in 3 files, comprising the previous 35 and 74 new tests |
+| `npm run lint` | Passed |
+| `npm run typecheck` | Passed in both workspaces |
+| `npm run build` | Passed for the client bundle and compiled server |
+| Manual verification script | Bash syntax passed. Codex exercised the script against the compiled Express app on a temporary loopback port with a disposable in-memory Wix mock. It completed its create, GET, PATCH, DELETE and final 404 assertions. |
+
+Coverage includes exact Wix methods, headers and request bodies, optional fields, lengths, GUIDs, revisions, JSON parsing, duplicate and stale-revision codes, field clearing and list preservation, member and billing restrictions, merged IDs, malformed success results, upstream failures and credential-safe errors. HTTP tests include accepted same-origin writes, rejected foreign Origin/Host and cross-site requests, size limits, and media types. One initial header test failed because the fetch client controlled a header. The final test sends the intended wire headers with Node's HTTP client.
+
+## Stage 3 independent verification pending
+
+Live individual retrieval and live mutations through ContactHub remain unverified. The README gives commands for an independent run using only a newly created disposable contact. Wix's actual normalization of cleared text, primary reassignment, generated list item IDs, and permission configuration should also be checked on disposable data as relevant. Codex made no live Wix calls during this stage.

@@ -40,3 +40,17 @@ Use fictional contacts and dummy credentials to test request construction, pagin
 Codex wrote the config loader, transport, schemas, mapping, route, and tests. The environment path is relative to the server module so source and compiled startup resolve the same file. Only startup loads dotenv. The tests disable Vite environment-file discovery, stub the credential variables, and replace outgoing fetch. They exercise Express over loopback.
 
 The transport keeps its origin fixed, declines redirects, and applies the deadline to both fetch and response consumption. Public errors are assembled from fixed messages and bounded diagnostic fields. The service accepts unknown Wix fields and explicitly selects browser-visible data. An absent revision stays null. Membership is based on the member ID in the supplied verified example. The testing record distinguishes the user's independent observations from Codex's automated checks.
+
+## Stage 3 assignment prompt (summary)
+
+Extend commit `b08136e` with individual GET, POST, PATCH and DELETE through the official Wix Contacts V4 REST API. Retain health, pagination, the existing architecture, all 35 tests and the normalized public contact model. Verify methods, bodies, responses, field masks, duplicate detection, revision handling and documented errors. Allow partial edits and explicit clears of six fields while preserving unrelated data. Guard member email changes, protected deletions, and merged source IDs. Validate inputs, origins, content types and size. Keep secrets server-side and do not inspect the real environment file.
+
+Use dummy fixtures and mock all Wix calls. Leave the existing member/contributor contact alone. Add safe independent verification commands and document the user-supplied live query results separately from the pending live CRUD work. Run the four project checks, review the Git diff, commit the stage, and stop at the backend.
+
+### AI-generated implementation and verification
+
+Codex extended the contacts service, router and existing transport. The Wix reference was consulted in its REST sections. The update schema lists `info`, `revision` and optional duplicate control. The implementation selects fields in the PATCH body, without adding an undocumented mask. Email and phone edits use a full preflight read, retain writable secondary details and send the caller's original revision. A preflight revision mismatch stops the write. The documented upstream 409 codes distinguish a concurrent edit from a duplicate. GET may resolve a merged source. Mutations require an exact target ID.
+
+Application choices include GUID validation, common phone formatting and extensions, explicit JSON null for clearing, a 16 KiB JSON limit, local Host/Origin checks, and no mutation retries. Member protections use the existing member ID signal and Wix's definitive rejection codes. No private upstream payloads are included in public errors. The README documents remaining limits on identity, clearing and public deployment.
+
+Codex wrote the mocked HTTP tests and disposable-contact shell procedure. The shell procedure was exercised against a mocked transport only. The user independently verified the previous live query stage. Independent live CRUD verification is pending. See [Testing](TESTING.md).
