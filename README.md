@@ -4,9 +4,11 @@ ContactHub is an external contacts dashboard for a Wix Developer Relations Exper
 
 ## Run locally
 
-Use Node.js 24.15 or later in the 24.x line and npm 11 or later. From the repository root, select the project runtime before installing dependencies.
+Use Node.js 24.15 or later in the 24.x line and npm 11 or later. Clone the repository and install its locked dependencies. The `nvm` commands select the project's Node version. If you already have a compatible runtime, proceed directly to `npm ci` from the repository root.
 
 ```sh
+git clone https://github.com/Dsaar/contacthub.git
+cd contacthub
 nvm install
 nvm use
 npm ci
@@ -75,9 +77,9 @@ The directory retains the original `primaryPhone` and `phones` display strings. 
 ### Independent browser check
 
 1. Start both workspaces with the commands above and open the local dashboard. Verify the integration indicator, count, detail view, page size, and a known field prefix. Clear the search to restore the list.
-2. Create a **new fictional contact with a unique email**. Open that contact's details, edit its job title, refresh, and confirm its email and phone were preserved. Delete only this disposable contact using the confirmation dialog. Keep the existing member/contributor record out of mutation tests.
-3. To check concurrency, open the disposable contact's editor in two tabs before deleting it. Save in the first tab, then try a different edit in the second. Confirm that the draft survives and that saving requires loading and reviewing the latest version.
-4. Try the same list on a narrow screen. Use Tab and Escape in a dialog and check that focus returns to its trigger. Visual confirmation in the Wix dashboard can be recorded independently without sharing private contact details.
+2. Create a **new fictional contact with a unique email and a phone number**. Open its details, edit its job title, refresh, and confirm that its email and phone were preserved.
+3. To check concurrency, open that contact's editor in two tabs. Save in the first tab, then try a different edit in the second. Confirm that the draft survives and that saving requires loading and reviewing the latest version.
+4. Try the list on a narrow screen. Use Tab and Escape in a dialog and check that focus returns to its trigger. Finally, open Delete for the disposable contact, verify its identifying details and confirm deletion.
 
 ## List requests and authentication
 

@@ -1,6 +1,14 @@
 # AI usage
 
-Codex implemented this foundation from the user's assignment prompt, ran the checks recorded in [Testing](TESTING.md), and prepared the Git commit. Verification described here was performed by the agent.
+OpenAI Codex generated the implementation, tests, and documentation from the staged prompts summarized below. A separate Codex review evaluated the committed dashboard against Wix's REST reference and exercised edge cases with fictional data. The user configured Wix, tested the real integration, discovered the browser write failure, and independently verified the remediation. [Testing record](TESTING.md)
+
+## Benefits, limitations, and lessons learned
+
+Codex turned the Wix request examples into regression tests for headers, revision conflicts, and partial updates. Those tests made it possible to inspect the exact PATCH payload for a contact with several phone numbers without changing a real record.
+
+The original browser tests intercepted requests before they reached Vite. Direct backend tests also bypassed the proxy, so both suites passed while a real browser write failed. The user's DevTools capture identified the failing hop. A regression now sends requests through Vite and Express on both supported hostnames.
+
+The same distinction matters for CRM data. A mocked PATCH can establish which fields ContactHub sends. A live read after an edit establishes what Wix stored. The user verified company, job title, and phone clears with name and email preserved. Fixtures cover international phone collisions. Wix's selection of a new primary among remaining numbers still awaits live verification. [Human remediation checks](TESTING.md#independent-human-verification-of-the-remediation)
 
 ## Assignment prompt (summary)
 

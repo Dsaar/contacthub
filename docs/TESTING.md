@@ -1,4 +1,8 @@
-# Foundation verification
+# Task 4 verification
+
+The final suite passed 174 tests across six files. Automated tests use fictional data and mock Wix. The proxy tests run real local Vite and Express listeners. The user separately verified live CRUD and the remediation against a Wix test site. [Automated remediation results](#audit-remediation-verification) · [Human browser checks](#independent-human-retest-after-the-proxy-fix) · [Human remediation checks](#independent-human-verification-of-the-remediation)
+
+## Foundation verification
 
 Codex ran the following checks on November 26, 2026, using Node.js 24.22.3 and npm 11.19.1.
 
