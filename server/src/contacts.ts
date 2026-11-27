@@ -7,7 +7,7 @@ const timestamp = z.iso.datetime({ offset: true }).optional()
 const integer = z.int().nonnegative()
 
 const wixContact = z.object({
-  id: z.string().min(1),
+  id: contactId,
   revision: integer.optional(),
   createdDate: timestamp,
   updatedDate: timestamp,
@@ -38,21 +38,45 @@ const queryResponse = z.object({
   }),
 })
 
-function dashboardContact(contact: z.infer<typeof wixContact>) {
+type WixContact = z.infer<typeof wixContact>
+
+// Wix can supply the primary in the collection, the summary, or both. Keep
+// object identity so two countries sharing a national number remain distinct.
+function resolvePhones(contact?: WixContact) {
+  const items = contact?.info?.phones?.items ?? []
+  const summary = contact?.primaryPhone
+  const number = contact?.primaryInfo?.phone ?? summary?.phone
+  const flagged = items.filter(item => item.primary)
+  const conflictingNumbers = number && summary?.phone && number !== summary.phone
+  const internationalMatches = summary?.e164Phone
+    ? items.filter(item => item.e164Phone === summary.e164Phone) : []
+  const possible = internationalMatches.length ? internationalMatches : items
+  const candidates = possible.filter(item => {
+    if (!item.phone || (flagged.length && !item.primary)) return false
+    if (number && item.phone !== number) return false
+    if (summary?.countryCode && item.countryCode && item.countryCode !== summary.countryCode) return false
+    if (summary?.e164Phone && item.e164Phone && item.e164Phone !== summary.e164Phone) return false
+    return Boolean(item.primary || number || internationalMatches.length)
+  })
+  const primary = !conflictingNumbers && flagged.length <= 1 && candidates.length === 1
+    ? candidates[0] : undefined
+  return { items, primary, number: number ?? primary?.phone ?? summary?.e164Phone, summary }
+}
+
+function dashboardContact(contact: WixContact) {
   const { info, primaryInfo } = contact
   const emails = info?.emails?.items ?? []
-  const phones = info?.phones?.items ?? []
-  const primaryNumber = contact.primaryInfo?.phone ?? contact.primaryPhone?.phone ?? phones.find(item => item.primary && item.phone)?.phone ?? null
-  const phoneDetails = phones.filter(item => item.phone && (item.e164Phone || item.countryCode)).map(item => ({
-    phone: item.phone!, countryCode: item.countryCode ?? null, e164Phone: item.e164Phone ?? null,
-  }))
-  const primary = contact.primaryPhone
-  if (primaryNumber && (!primary?.phone || primary.phone === primaryNumber) && (primary?.countryCode || primary?.e164Phone)) {
-    const index = phoneDetails.findIndex(item => item.phone === primaryNumber)
-    const detail = { phone: primaryNumber, countryCode: primary.countryCode ?? phoneDetails[index]?.countryCode ?? null,
-      e164Phone: primary.e164Phone ?? phoneDetails[index]?.e164Phone ?? null }
-    if (index < 0) phoneDetails.push(detail)
-    else phoneDetails[index] = detail
+  const { items: phones, primary, number, summary } = resolvePhones(contact)
+  const phoneDetails = phones.flatMap(item => item.phone ? [{
+    phone: item.phone, primary: item === primary, tag: item.tag ?? null,
+    countryCode: item.countryCode ?? (item === primary ? summary?.countryCode : undefined) ?? null,
+    e164Phone: item.e164Phone ?? (item === primary ? summary?.e164Phone : undefined) ?? null,
+  }] : [])
+  // A summary-only number is readable, but cannot identify a writable list item.
+  if (number && !phoneDetails.some(item => item.phone === number)) {
+    const matchingSummary = !summary?.phone || summary.phone === number ? summary : undefined
+    phoneDetails.push({ phone: number, primary: true, tag: null,
+      countryCode: matchingSummary?.countryCode ?? null, e164Phone: matchingSummary?.e164Phone ?? null })
   }
   return {
     id: contact.id,
@@ -60,7 +84,7 @@ function dashboardContact(contact: z.infer<typeof wixContact>) {
     firstName: info?.name?.first ?? null,
     lastName: info?.name?.last ?? null,
     primaryEmail: primaryInfo?.email ?? emails.find(item => item.primary && item.email)?.email ?? null,
-    primaryPhone: primaryNumber,
+    primaryPhone: number ?? null,
     ...(phoneDetails.length ? { phoneDetails } : {}),
     emails: emails.flatMap(item => item.email ? [item.email] : []),
     phones: phones.flatMap(item => item.phone ? [item.phone] : []),
@@ -98,7 +122,7 @@ export async function queryContacts(paging: { limit: number, offset: number }, t
   }
 }
 
-const singleContact = wixContact.extend({ id: contactId, revision: z.int32().nonnegative() })
+const singleContact = wixContact.extend({ revision: z.int32().nonnegative() })
 const singleResponse = z.object({ contact: singleContact, responseType: z.string().optional() })
 const collection = '/contacts/v4/contacts'
 type Contact = z.infer<typeof singleContact>
@@ -117,23 +141,36 @@ async function mutationTarget(id: string) {
   return contact
 }
 
-// PATCH replaces the supplied list. Select the primary by flag or the Wix summary
-// and round-trip only documented writable fields, including secondary tags and country codes.
-function primaryItems<T extends { primary?: boolean }>(
-  items: T[], field: 'email' | 'phone', summary: string | undefined, value: string | null,
-  readValue: (item: T) => string | undefined,
-) {
+// Collections in PATCH are replacements. Preserve order and writable metadata.
+function emailItems(contact: Contact | undefined, value: string | null) {
+  const items = contact?.info?.emails?.items ?? []
+  const summary = contact?.primaryInfo?.email
   const flagged = items.filter(item => item.primary)
-  const matches = summary ? items.filter(item => readValue(item) === summary) : []
+  const matches = summary ? items.filter(item => item.email === summary) : []
   if (flagged.length > 1 || (summary && (matches.length !== 1 || (flagged[0] && flagged[0] !== matches[0]))) ||
-      items.some(item => !readValue(item))) throw new WixError('AMBIGUOUS_PRIMARY')
+      items.some(item => !item.email)) throw new WixError('AMBIGUOUS_PRIMARY')
   const primary = flagged[0] ?? matches[0]
-  if (value && items.some(item => item !== primary && readValue(item) === value)) {
+  if (value && items.some(item => item !== primary && item.email === value)) throw new WixError('AMBIGUOUS_PRIMARY')
+  if (value === null) return items.filter(item => item !== primary)
+  if (!primary) return [...items, { email: value, primary: true }]
+  return items.map(item => item === primary ? { ...item, email: value, primary: true } : item)
+}
+
+function phoneItems(contact: Contact | undefined, value: string | null) {
+  const { items, primary, number, summary } = resolvePhones(contact)
+  const unresolved = !primary && (items.length > 0 || number || summary?.countryCode)
+  const duplicatesSecondary = value && items.some(item =>
+    item !== primary && (item.phone === value || item.e164Phone === value))
+  if (unresolved || duplicatesSecondary || items.some(item => !item.phone)) {
     throw new WixError('AMBIGUOUS_PRIMARY')
   }
-  if (value === null) return items.filter(item => item !== primary)
-  if (!primary) return [...items, { [field]: value, primary: true }]
-  return items.map(item => item === primary ? { ...item, [field]: value, primary: true } : item)
+  if (!primary) return value === null ? [] : [{ phone: value, primary: true }]
+  return items.flatMap(item => {
+    const { phone, countryCode, tag } = item
+    if (item !== primary) return [{ phone, countryCode, tag, primary: item.primary }]
+    if (value === null) return []
+    return [{ phone: value, countryCode: countryCode ?? summary?.countryCode, tag, primary: true }]
+  })
 }
 
 function contactInfo(changes: ContactChanges, contact?: Contact) {
@@ -142,12 +179,8 @@ function contactInfo(changes: ContactChanges, contact?: Contact) {
     name: firstName !== undefined || lastName !== undefined
       ? { first: firstName === null ? '' : firstName, last: lastName === null ? '' : lastName }
       : undefined,
-    emails: email === undefined ? undefined : { items: primaryItems(
-      contact?.info?.emails?.items ?? [], 'email', contact?.primaryInfo?.email, email, item => item.email,
-    ) },
-    phones: phone === undefined ? undefined : { items: primaryItems(
-      (contact?.info?.phones?.items ?? []).map(({ phone, tag, countryCode, primary }) => ({ phone, tag, countryCode, primary })), 'phone', contact?.primaryInfo?.phone, phone, item => item.phone,
-    ) },
+    emails: email === undefined ? undefined : { items: emailItems(contact, email) },
+    phones: phone === undefined ? undefined : { items: phoneItems(contact, phone) },
     company: company === null ? '' : company,
     jobTitle: jobTitle === null ? '' : jobTitle,
   }

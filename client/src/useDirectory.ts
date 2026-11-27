@@ -97,6 +97,12 @@ export function useDirectory() {
       : checked
         ? 'Connected'
         : 'Disconnected'
+  function refreshAfterMutation() {
+    setBusy(true)
+    setResult(null)
+    setTotal(null)
+    refresh()
+  }
   function refresh() {
     setCycle((n) => n + 1)
   }
@@ -118,5 +124,6 @@ export function useDirectory() {
     busy,
     error,
     refresh,
+    refreshAfterMutation,
   }
 }

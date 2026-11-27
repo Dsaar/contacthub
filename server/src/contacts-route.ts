@@ -21,14 +21,15 @@ function reject(response: Response, status: number, code: string, message: strin
 
 contactsRouter.use((request, response, next) => {
   response.set('Cache-Control', 'no-store')
-  if (!['POST', 'PATCH', 'DELETE'].includes(request.method)) return next()
-
   // Validate Host independently of Origin, including for non-browser clients.
   const host = request.get('host')
   const localHost = ['127.0.0.1', 'localhost'].some(name =>
     host === `${name}:${request.socket.localPort}` || host === `${name}:5173`)
+  if (!localHost) return reject(response, 403, 'ORIGIN_REJECTED', 'Use a local ContactHub host.')
+  if (!['POST', 'PATCH', 'DELETE'].includes(request.method)) return next()
+
   const origin = request.get('origin')
-  if (!localHost || (origin !== undefined && origin !== `http://${host}`) ||
+  if ((origin !== undefined && origin !== `http://${host}`) ||
       request.get('sec-fetch-site') === 'cross-site') {
     return reject(response, 403, 'ORIGIN_REJECTED', 'Use the local ContactHub origin for writes.')
   }

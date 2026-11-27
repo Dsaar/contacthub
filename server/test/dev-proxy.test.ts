@@ -60,12 +60,13 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-async function throughProxy(host: string, method: string, body?: unknown, headers?: Record<string, string>) {
+async function throughProxy(host: string, method: string, body?: unknown, headers?: Record<string, string>,
+  path = '/api/contacts' + (method === 'POST' ? '' : '/' + id)) {
   // The socket is isolated from any running development servers. The HTTP
   // authority and browser metadata on the wire use the documented frontend port.
   const req = request({
     hostname: '127.0.0.1', port: port(proxy.httpServer!), method,
-    path: '/api/contacts' + (method === 'POST' ? '' : '/' + id),
+    path,
     headers: {
       host, origin: 'http://' + host, referer: 'http://' + host + '/',
       'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'cors',
@@ -95,6 +96,19 @@ it.each(['localhost:5173', '127.0.0.1:5173'])('forwards same-origin POST, PATCH 
   wix.mockResolvedValueOnce(Response.json({ contact })).mockResolvedValueOnce(Response.json({}))
   expect(await throughProxy(host, 'DELETE')).toEqual({ status: 204, body: undefined })
   expect(wix.mock.calls.map(([, options]) => options?.method)).toEqual(['POST', 'GET', 'PATCH', 'GET', 'DELETE'])
+})
+
+it.each(['localhost:5173', '127.0.0.1:5173'])('forwards list and detail reads for %s', async host => {
+  wix.mockResolvedValueOnce(Response.json({ contacts: [contact], pagingMetadata: { count: 1 } }))
+    .mockResolvedValueOnce(Response.json({ contact }))
+  const list = await throughProxy(host, 'GET', undefined, {}, '/api/contacts')
+  expect(list.status).toBe(200)
+  expect(list.body.contacts[0].id).toBe(id)
+  expect(ingress.host).toBe(host)
+  const detail = await throughProxy(host, 'GET')
+  expect(detail.status).toBe(200)
+  expect(detail.body.contact.id).toBe(id)
+  expect(wix.mock.calls.map(([, options]) => options?.method)).toEqual(['POST', 'GET'])
 })
 
 it.each([

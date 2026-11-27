@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, asError, type ApiError } from './api'
 import { Dialog, ErrorNotice } from './ui'
-import { contactName, type Contact } from './types'
+import { contactIdentity, contactName, phoneEntries, type Contact } from './types'
 
 export function ContactDetails({ id, onClose }: { id: string; onClose: () => void }) {
   const [contact, setContact] = useState<Contact | null>(null)
@@ -18,6 +18,7 @@ export function ContactDetails({ id, onClose }: { id: string; onClose: () => voi
       })
     return () => controller.abort()
   }, [id])
+  const phones = contact ? phoneEntries(contact) : []
   return (
     <Dialog title="Contact details" onClose={onClose}>
       <div className="modal-body">
@@ -44,18 +45,16 @@ export function ContactDetails({ id, onClose }: { id: string; onClose: () => voi
               </dd>
               <dt>Phone numbers</dt>
               <dd>
-                {[...new Set([contact.primaryPhone, ...contact.phones].filter(Boolean))].map((phone) => {
-                  const meta = contact.phoneDetails?.find((item) => item.phone === phone)
-                  return (
-                    <div key={phone}>
-                      {phone}
-                      {meta?.e164Phone && meta.e164Phone !== phone && ' · ' + meta.e164Phone}
-                      {meta?.countryCode && ' (' + meta.countryCode + ')'}
-                      {phone === contact.primaryPhone && <small>Primary</small>}
-                    </div>
-                  )
-                })}
-                {!contact.primaryPhone && !contact.phones.length && '—'}
+                {phones.map((entry, index) => (
+                  <div key={index}>
+                    {entry.phone}
+                    {entry.e164Phone && entry.e164Phone !== entry.phone && ' · ' + entry.e164Phone}
+                    {entry.countryCode && ' (' + entry.countryCode + ')'}
+                    {entry.tag && ' · ' + entry.tag}
+                    {entry.primary && <small>Primary</small>}
+                  </div>
+                ))}
+                {!phones.length && '—'}
               </dd>
               <dt>Company</dt>
               <dd>{contact.company || '—'}</dd>
@@ -99,7 +98,7 @@ export function DeleteDialog({
     <Dialog title="Delete contact?" busy={busy} onClose={onClose}>
       <div className="modal-body">
         <p>
-          This permanently deletes <strong>{contactName(contact)}</strong> from your Wix site.
+          This permanently deletes <strong>{contactIdentity(contact)}</strong> from your Wix site.
         </p>
         {error && <ErrorNotice error={error} />}
       </div>

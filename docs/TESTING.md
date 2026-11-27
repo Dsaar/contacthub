@@ -77,7 +77,7 @@ The user ran `scripts/verify-live-crud.sh` against the actual Wix site and repor
 | DELETE the disposable contact | HTTP 204 |
 | GET after deletion | HTTP 404, `WIX_NOT_FOUND` |
 
-The user also observed an internationally formatted input returned as a national-format phone. Raw metadata for that transaction was not supplied. Wix dashboard visual confirmation is pending.
+The user also observed an internationally formatted input returned as a national-format phone. Raw metadata for that transaction was not supplied. The later human browser check also covered the native Wix dashboard.
 
 ## Stage 4 automated checks
 
@@ -96,9 +96,9 @@ React Testing Library and jsdom tests mock the local application API. They cover
 
 Codex used Playwright with headless Chrome 158.0.8127.37 and the production client bundle on an isolated loopback static server. All application API requests were intercepted and answered with four fictional contacts. External network requests were blocked. The browser exercised desktop and mobile rendering, scoped search, details, member email protection, native dialog Tab/Escape behavior and focus restoration. There were no page exceptions, no horizontal overflow at widths of 320, 390, 768 or 1280 pixels, and zero mutation requests. The screenshots show fictional fixtures. [Desktop](screenshots/dashboard-desktop-mocked.png) · [Mobile](screenshots/dashboard-mobile-mocked.png)
 
-### Pending independent checks
+### Live checks at the end of stage 4
 
-The user subsequently confirmed that the browser retrieved live contacts and reported the write failure investigated below. Live prefix filtering, phone metadata on real responses, and visual confirmation in the Wix dashboard remain outside the reported results. The README includes a disposable-contact procedure.
+The user subsequently confirmed that the browser retrieved live contacts and reported the write failure investigated below. First-name search and the native dashboard were verified in the subsequent human retest below. The raw phone metadata from that transaction is still unknown. The README includes a disposable-contact procedure.
 
 ## Dashboard write failure through the Vite proxy
 
@@ -121,6 +121,50 @@ Vite expands a string proxy target to an object with `changeOrigin: true`. The c
 
 The two positive integration cases failed on the rewritten Host before the fix. After the fix, all 11 new tests passed. Each local address completed POST (201), PATCH (200), and DELETE (204) through Vite. A direct local curl POST with no Origin returned 201. External, lookalike, null, malformed, wrong-port, mismatched local origins and cross-site requests returned 403 before Wix. The suite uses the client proxy rule and substitutes only the isolated destination, so restoring the original shorthand reproduces the regression.
 
-Final checks: `npm test` passed 152 tests (22 frontend and 130 backend/integration), and lint, typecheck, and build passed. These proxy tests use browser-shaped HTTP requests and mocked Wix. Independent post-fix Chrome-to-live-Wix writes are pending.
+At commit `81a8466`, `npm test` passed 152 tests (22 frontend and 130 backend/integration). Lint, typecheck and build passed. The proxy tests used browser-shaped HTTP requests and mocked Wix.
 
-**Independent retest.** Restart the development servers with `npm run dev` and reload the dashboard. On each local address, create a fresh fictional contact with a unique email. Confirm POST 201, edit that contact and confirm PATCH 200, then confirm DELETE 204 for that same disposable contact. Leave the existing member/contributor contact alone.
+## Independent human retest after the proxy fix
+
+The user confirmed the live browser workflow on both `http://localhost:5173` and `http://127.0.0.1:5173`. The following observations come from the user's testing and screenshots of the submitted dashboard.
+
+| Workflow | Human observation |
+| --- | --- |
+| Directory | Live contacts rendered with Wix connected. The native Wix Contacts dashboard showed five contacts, consistent with ContactHub at that stage. |
+| Create and edit | The Add form opened, creation succeeded, and the created contacts appeared in Wix's native dashboard. The Edit form opened and the company changed from `Example` to `Example2`. |
+| Search and duplicates | First-name search returned the expected result. A duplicate contact was rejected. |
+| Delete | The site-member row showed a protected deletion control. A disposable contact had an explicit confirmation dialog and was successfully deleted. |
+| Mobile | The directory rendered in its responsive mobile layout. |
+
+The two tracked screenshots show fictional fixtures from the earlier AI-run browser check. The user's live screenshots are summarized here without personal contact data.
+
+## Audit remediation verification
+
+The independent AI code review reproduced phone-entry collisions, inconsistent primary selection, an ambiguous phone-only delete prompt, and actionable stale rows after deletion. It identified the read-route Host check and upstream ID gaps by inspecting the implementation and fixtures. Codex ran the remediation checks on November 27, 2026 with Node 24.22.3 and npm 11.19.1.
+
+| Command | Result |
+| --- | --- |
+| `npm test` | 174 passed in six files, including all 152 baseline cases. The client passed 29 and the backend/integration suite passed 145. |
+| `npm run lint` | Passed with warnings treated as failures. |
+| `npm run typecheck` | Passed for both workspaces and their tests. |
+| `npm run build` | Vite built the client and TypeScript compiled the Express server. |
+
+The 22 new regression cases cover the following behavior.
+
+- Real Vite-to-Express list and detail reads work on both local hostnames. The original POST, PATCH and DELETE proxy tests still run. Direct contact reads with an untrusted Host stop before the mocked Wix call.
+- Directory, editor, and details views select the primary entry when two countries share a national phone string. HTTP tests inspect the outgoing PATCH for sparse summaries, replacement, removal, retained secondary metadata, and refused ambiguous writes.
+- Phone-only and same-name contacts have distinguishable accessible actions and delete confirmations. Successful create, edit, and delete remain visible as successful when the directory refresh fails. Old row actions disappear. A failed delete retains the row.
+- A malformed upstream contact GUID produces a controlled response. Successful fixtures use fictional GUIDs.
+
+## Independent human verification of the remediation
+
+The user tested the remediation against their live Wix site and reported that all manual checks passed.
+
+| Check | Human-reported result |
+| --- | --- |
+| Connectivity and retrieval | The dashboard connected on both `localhost` and `127.0.0.1`. A normal contact retrieval returned HTTP 200. |
+| Phone-only identity | The user created a phone-only contact. Its deletion confirmation identified it by its phone number. |
+| Updates and clears | Contact information and phone updates succeeded. The user cleared the optional company, job title, and phone fields and verified that the existing name and email were preserved. |
+| Request protections | An untrusted Host returned HTTP 403 with `ORIGIN_REJECTED`. A separate request with an untrusted Origin also returned HTTP 403 with `ORIGIN_REJECTED`. |
+| Cleanup | The user deleted the disposable contact. The existing site member remained untouched. |
+
+The automated tests above cover international entries with matching national digits and ambiguous primary selection. The live report covers the specific updates and clears in this table. Broader international collisions and Wix's choice of a new primary among remaining numbers are outside that report.

@@ -5,7 +5,7 @@ import { api, ApiError } from '../src/api'
 import type { Contact, Page } from '../src/types'
 
 const person: Contact = {
-  id: 'fictional-1',
+  id: '00000000-0000-4000-8000-000000000001',
   revision: 3,
   firstName: 'Alex',
   lastName: 'Example',
@@ -34,6 +34,7 @@ function page(contacts = [person], metadata: Partial<Page['pagingMetadata']> = {
     },
   }
 }
+const identity = 'Alex Example · alex@example.invalid · +12025550123'
 const list = vi.spyOn(api, 'list')
 const get = vi.spyOn(api, 'get')
 const create = vi.spyOn(api, 'create')
@@ -65,7 +66,7 @@ async function start() {
 }
 async function edit() {
   await start()
-  click('Edit Alex Example')
+  click('Edit ' + identity)
   await screen.findByDisplayValue('Alex')
 }
 
@@ -73,7 +74,7 @@ it('renders real API fields and fetches details with secondary communication val
   await start()
   for (const text of ['Alex Example', 'alex@example.invalid', 'Example Co', 'Designer', '+12025550123'])
     expect(screen.getByText(text)).toBeTruthy()
-  click('View details for Alex Example')
+  click('View details for ' + identity)
   await screen.findByText('work@example.invalid')
   expect(screen.getByText(/555-0102/)).toBeTruthy()
   expect(get).toHaveBeenCalledWith(person.id, expect.any(AbortSignal))
@@ -256,23 +257,23 @@ it('protects member email and deletion', async () => {
 it('explains a missing contact and refuses an edit to a merged target', async () => {
   get
     .mockRejectedValueOnce(new ApiError('WIX_NOT_FOUND', 'Upstream error'))
-    .mockResolvedValueOnce({ contact: { ...person, id: 'merged-target' } })
+    .mockResolvedValueOnce({ contact: { ...person, id: '00000000-0000-4000-8000-000000000003' } })
   await start()
-  click('Edit Alex Example')
+  click('Edit ' + identity)
   await screen.findByText(/no longer exists/)
   click('Cancel')
-  click('Edit Alex Example')
+  click('Edit ' + identity)
   await screen.findByText(/was merged/)
   expect(update).not.toHaveBeenCalled()
 })
 it('requires delete confirmation and retains the row on failure', async () => {
   remove.mockRejectedValue(new ApiError('PROTECTED_CONTACT', 'Wix protects this contact.'))
   await start()
-  click('Delete Alex Example')
-  expect(within(screen.getByRole('dialog')).getByText('Alex Example')).toBeTruthy()
+  click('Delete ' + identity)
+  expect(within(screen.getByRole('dialog')).getByText(identity)).toBeTruthy()
   click('Cancel')
   expect(remove).not.toHaveBeenCalled()
-  click('Delete Alex Example')
+  click('Delete ' + identity)
   click('Delete contact')
   await screen.findByText('Wix protects this contact.')
   click('Cancel')
@@ -290,7 +291,7 @@ it('returns to a valid page after deleting its last row', async () => {
   await start()
   click('Next page')
   await screen.findByText('Alex Example')
-  click('Delete Alex Example')
+  click('Delete ' + identity)
   click('Delete contact')
   await screen.findByText('Contact deleted.')
   await screen.findByText('First Example')
@@ -303,7 +304,7 @@ it('stops probing beyond the last full page when Wix cannot count it', async () 
     q.offset
       ? page([], { count: 0, offset: q.offset, total: null, hasNext: null, tooManyToCount: true })
       : page(
-          Array.from({ length: 10 }, (_, i) => ({ ...person, id: 'fictional-' + i })),
+          Array.from({ length: 10 }, (_, i) => ({ ...person, id: '00000000-0000-4000-8000-' + String(i + 1).padStart(12, '0') })),
           { count: 10, total: null, hasNext: null, tooManyToCount: true },
         ),
   )
@@ -330,4 +331,78 @@ it('retains a proposed email for review when a conflicted contact becomes protec
   click('Save changes')
   await screen.findByText('Contact updated.')
   expect(update).toHaveBeenLastCalledWith(person.id, { revision: 4, company: 'My company' })
+})
+
+it.each([
+  ['phone only', null, null, null, null, '5550101', '5550102'],
+  ['same name, different emails', 'Alex', 'Example', 'one@example.invalid', 'two@example.invalid', null, null],
+  ['same name, different phones', 'Alex', 'Example', null, null, '5550101', '5550102'],
+] as const)('identifies the selected contact in delete controls and confirmation: %s',
+  async (_case, firstName, lastName, firstEmail, secondEmail, firstPhone, secondPhone) => {
+    const first = { ...person, firstName, lastName, primaryEmail: firstEmail, primaryPhone: firstPhone,
+      emails: [], phones: [], phoneDetails: undefined }
+    const second = { ...first, id: '00000000-0000-4000-8000-000000000002',
+      primaryEmail: secondEmail, primaryPhone: secondPhone }
+    list.mockResolvedValue(page([first, second]))
+    await start()
+    const firstLabel = [firstName && 'Alex Example', firstEmail, firstPhone].filter(Boolean).join(' · ')
+    const secondLabel = [firstName && 'Alex Example', secondEmail, secondPhone].filter(Boolean).join(' · ')
+    expect(screen.getByRole('button', { name: 'Delete ' + firstLabel })).toBeTruthy()
+    click('Delete ' + secondLabel)
+    expect(within(screen.getByRole('dialog')).getByText(secondLabel)).toBeTruthy()
+    expect(remove).not.toHaveBeenCalled()
+    click('Delete contact')
+    await screen.findByText('Contact deleted.')
+    expect(remove).toHaveBeenCalledExactlyOnceWith(second.id)
+  })
+
+it('renders both international entries and marks only the second as primary in details and edit', async () => {
+  const phone = '612345678'
+  const secondary = { phone, countryCode: 'ES', e164Phone: '+34612345678', primary: false, tag: 'WORK' }
+  const primary = { phone, countryCode: 'NL', e164Phone: '+31612345678', primary: true, tag: 'HOME' }
+  const contact = { ...person, primaryPhone: phone, phones: [phone, phone], phoneDetails: [secondary, primary] }
+  list.mockResolvedValue(page([contact]))
+  get.mockResolvedValue({ contact })
+  await start()
+  expect(screen.getByText(primary.e164Phone)).toBeTruthy()
+  const label = 'Alex Example · alex@example.invalid · ' + primary.e164Phone
+  click('View details for ' + label)
+  const dialog = within(screen.getByRole('dialog'))
+  const first = await dialog.findByText(/34612345678.*ES.*WORK/)
+  const second = dialog.getByText(/31612345678.*NL.*HOME/)
+  expect(within(first).queryByText('Primary')).toBeNull()
+  expect(within(second).getByText('Primary')).toBeTruthy()
+  click('Close dialog')
+  click('Edit ' + label)
+  expect(await screen.findByDisplayValue(primary.e164Phone)).toBeTruthy()
+})
+
+it.each(['create', 'update', 'delete'] as const)('keeps %s success separate from a failed directory refresh', async operation => {
+  let failRefresh!: (error: ApiError) => void
+  list.mockResolvedValueOnce(page()).mockImplementationOnce(() => new Promise((_resolve, reject) => {
+    failRefresh = reject
+  }))
+  await start()
+  if (operation === 'delete') {
+    click('Delete ' + identity)
+    click('Delete contact')
+  } else if (operation === 'update') {
+    click('Edit ' + identity)
+    await screen.findByDisplayValue('Alex')
+    fill('Company', 'Updated')
+    click('Save changes')
+  } else {
+    click('Add contact')
+    fill('First name', 'New')
+    click('Create contact')
+  }
+  const notice = { create: 'Contact created.', update: 'Contact updated.', delete: 'Contact deleted.' }
+  await screen.findByText(notice[operation])
+  expect(screen.queryByRole('button', { name: 'Delete ' + identity })).toBeNull()
+  await act(async () => failRefresh(new ApiError('WIX_TIMEOUT', 'Directory refresh timed out.')))
+  await screen.findByText('Directory refresh timed out.')
+  expect(screen.getByText(notice[operation])).toBeTruthy()
+  expect(screen.getByText('Directory unavailable')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Delete ' + identity })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Edit ' + identity })).toBeNull()
 })

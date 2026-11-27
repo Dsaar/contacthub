@@ -316,3 +316,58 @@ it('changes company without sending communication lists or other fields', async 
   expect((await call('PATCH', { revision: 2, company: 'Sample Co' })).status).toBe(200)
   expectRequest(1, 'PATCH', api + '/' + id, { info: { company: 'Sample Co' }, revision: 2, allowDuplicates: false })
 })
+
+it.each(['/api/contacts', '/api/contacts/' + id])('requires a local Host on GET %s before calling Wix', async path => {
+  const request = httpRequest(origin + path, { headers: { host: 'example.invalid:3000' } })
+  const received = once(request, 'response')
+  request.end()
+  const [response] = await received
+  expect(response.statusCode).toBe(403)
+  expect(JSON.parse(await text(response)).error.code).toBe('ORIGIN_REJECTED')
+  expect(wix).not.toHaveBeenCalled()
+})
+
+const national = '612345678'
+const spanish = { phone: national, countryCode: 'ES', e164Phone: '+34612345678', tag: 'WORK', primary: false }
+const dutch = { phone: national, countryCode: 'NL', e164Phone: '+31612345678', tag: 'HOME', primary: true }
+
+it('keeps each international phone and identifies the second entry as primary', async () => {
+  reply({ contact: { ...contact, primaryInfo: { phone: national }, info: { phones: { items: [spanish, dutch] } } } })
+  const response = await call('GET')
+  expect(response.status).toBe(200)
+  expect(await response.json()).toMatchObject({ contact: {
+    phones: [national, national], primaryPhone: national, phoneDetails: [spanish, dutch],
+  } })
+})
+
+it.each([null, '612345679'])('uses a sparse top-level summary to set phone to %s', async value => {
+  const other = { phone: '5550101', countryCode: 'US', primary: false, tag: 'WORK' }
+  reply({ contact: { ...contact, primaryPhone: { phone: national, countryCode: 'NL' },
+    info: { phones: { items: [other, { phone: national, tag: 'HOME' }] } } } })
+  reply({ contact: { ...contact, revision: 3 } })
+  expect((await call('PATCH', { revision: 2, phone: value })).status).toBe(200)
+  const items = value === null ? [other] : [other, { phone: value, tag: 'HOME', countryCode: 'NL', primary: true }]
+  expectRequest(1, 'PATCH', api + '/' + id, { revision: 2, allowDuplicates: false, info: { phones: { items } } })
+})
+
+it('resolves equal national strings by international summary metadata on PATCH', async () => {
+  reply({ contact: { ...contact, primaryPhone: { phone: national, e164Phone: dutch.e164Phone },
+    info: { phones: { items: [spanish, { ...dutch, primary: undefined }] } } } })
+  reply({ contact: { ...contact, revision: 3 } })
+  expect((await call('PATCH', { revision: 2, phone: null })).status).toBe(200)
+  expectRequest(1, 'PATCH', api + '/' + id, { revision: 2, allowDuplicates: false,
+    info: { phones: { items: [{ phone: national, countryCode: 'ES', tag: 'WORK', primary: false }] } } })
+})
+
+it.each([
+  { primaryPhone: { phone: national }, info: { phones: { items: [{ phone: national }, { phone: national }] } } },
+  { primaryPhone: { phone: national } },
+  { info: { phones: { items: [{ phone: national }] } } },
+  { primaryPhone: { phone: national, countryCode: 'ES' }, info: { phones: { items: [spanish, dutch] } } },
+  { primaryPhone: { e164Phone: spanish.e164Phone }, info: { phones: { items: [spanish, { ...dutch, e164Phone: undefined }] } } },
+  { primaryPhone: { phone: national }, primaryInfo: { phone: '5550100' }, info: { phones: { items: [dutch] } } },
+])('declines a phone replacement when the primary cannot be identified safely', async details => {
+  reply({ contact: { ...contact, ...details } })
+  await expectError(await call('PATCH', { revision: 2, phone: '5550102' }), 409, 'AMBIGUOUS_PRIMARY')
+  expect(wix).toHaveBeenCalledTimes(1)
+})

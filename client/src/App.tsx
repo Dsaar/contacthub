@@ -41,13 +41,14 @@ export default function App() {
     busy,
     error,
     refresh,
+    refreshAfterMutation,
   } = useDirectory()
   const [modal, setModal] = useState<Modal | null>(null)
   const [notice, setNotice] = useState('')
   function saved(message: string) {
     setModal(null)
     setNotice(message)
-    refresh()
+    refreshAfterMutation()
   }
   return (
     <div className="shell">

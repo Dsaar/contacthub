@@ -4,7 +4,7 @@ import { api, ApiError, asError } from './api'
 import { Dialog, ErrorNotice } from './ui'
 import {
   fields,
-  internationalPhone,
+  primaryPhoneDisplay,
   labels,
   type Changes,
   type Contact,
@@ -17,7 +17,7 @@ function values(contact?: Contact): Draft {
     firstName: contact?.firstName ?? '',
     lastName: contact?.lastName ?? '',
     email: contact?.primaryEmail ?? '',
-    phone: contact ? (internationalPhone(contact, contact.primaryPhone) ?? '') : '',
+    phone: contact ? (primaryPhoneDisplay(contact) ?? '') : '',
     company: contact?.company ?? '',
     jobTitle: contact?.jobTitle ?? '',
   }

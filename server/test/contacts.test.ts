@@ -6,6 +6,8 @@ const dummyKey = 'dummy-key-for-tests'
 const dummySite = 'dummy-site-for-tests'
 const privateText = 'private-fixture@example.invalid'
 const requestId = '1760000000.000-test-id'
+const id = '00000000-0000-4000-8000-000000000001'
+const secondId = '00000000-0000-4000-8000-000000000002'
 const localFetch = globalThis.fetch
 const wixFetch = vi.fn<typeof fetch>()
 let origin: string
@@ -42,7 +44,7 @@ it('queries the Wix REST endpoint and returns only dashboard fields', async () =
   const date = '2026-01-01T00:00:00Z'
   wixFetch.mockResolvedValue(Response.json({
     contacts: [{
-      id: 'fictional-contact', revision: 4, createdDate: date, updatedDate: date,
+      id, revision: 4, createdDate: date, updatedDate: date,
       primaryInfo: { email: 'primary@example.invalid', phone: '+15550100001' },
       info: {
         name: { first: 'Casey', last: 'Example' }, company: 'Example Co', jobTitle: 'Designer',
@@ -59,9 +61,13 @@ it('queries the Wix REST endpoint and returns only dashboard fields', async () =
   expect(response.headers.get('cache-control')).toBe('no-store')
   expect(await response.json()).toEqual({
     contacts: [{
-      id: 'fictional-contact', revision: 4, firstName: 'Casey', lastName: 'Example',
+      id, revision: 4, firstName: 'Casey', lastName: 'Example',
       primaryEmail: 'primary@example.invalid', primaryPhone: '+15550100001',
       emails: ['primary@example.invalid'], phones: ['+15550100001', '+15550100002'],
+      phoneDetails: [
+        {phone:'+15550100001', primary:true, tag:null, countryCode:null, e164Phone:null},
+        {phone:'+15550100002', primary:false, tag:null, countryCode:null, e164Phone:null},
+      ],
       company: 'Example Co', jobTitle: 'Designer', createdDate: date, updatedDate: date, isSiteMember: true,
     }],
     pagingMetadata: { offset: 20, limit: 100, count: 1, total: 21, tooManyToCount: false, hasNext: false },
@@ -90,8 +96,8 @@ it('applies default pagination and accepts an empty result', async () => {
 it('handles sparse contacts, secondary detail lists and unknown totals', async () => {
   wixFetch.mockResolvedValue(Response.json({
     contacts: [
-      { id: 'one' },
-      { id: 'two', info: {
+      { id },
+      { id: secondId, info: {
         emails: { items: [{ email: 'listed@example.invalid', primary: true }] },
         phones: { items: [{ phone: '+15550100001', primary: true }] },
       } },
@@ -103,7 +109,7 @@ it('handles sparse contacts, secondary detail lists and unknown totals', async (
   const body = await response.json()
   expect(body).toEqual({
     contacts: [{
-      id: 'one', revision: null, firstName: null, lastName: null, primaryEmail: null, primaryPhone: null,
+      id, revision: null, firstName: null, lastName: null, primaryEmail: null, primaryPhone: null,
       emails: [], phones: [], company: null, jobTitle: null, createdDate: null, updatedDate: null, isSiteMember: false,
     }, expect.objectContaining({ primaryEmail: 'listed@example.invalid', primaryPhone: '+15550100001' })],
     pagingMetadata: { count: 2, offset: 4, limit: 10, total: null, tooManyToCount: true, hasNext: null },
@@ -175,6 +181,7 @@ it('aborts a pending Wix request when the deadline expires', async () => {
 })
 
 it.each(['not json', '{}', '{"contacts":[]}', '{"contacts":{},"pagingMetadata":{}}',
+  '{"contacts":[{"id":"not-a-guid"}],"pagingMetadata":{}}',
   '{"contacts":[{"revision":1}],"pagingMetadata":{}}', '{"contacts":[],"pagingMetadata":{"total":"many"}}'])(
   'rejects malformed upstream data', async raw => {
     wixFetch.mockResolvedValue(new Response(raw, { headers: { 'wix-request-id': requestId } }))
@@ -199,12 +206,16 @@ it.each([
 
 it('keeps Wix-provided phone metadata without inferring a calling code', async () => {
   wixFetch.mockResolvedValue(Response.json({contacts:[{
-    id:'phone-fixture', primaryInfo:{phone:'202-555-0123'}, primaryPhone:{countryCode:'US',e164Phone:'+12025550123'},
+    id, primaryInfo:{phone:'202-555-0123'}, primaryPhone:{countryCode:'US',e164Phone:'+12025550123'},
     info:{phones:{items:[{phone:'202-555-0123',primary:true},{phone:'555-0102',countryCode:'CA'},{phone:'555-0103'}]}},
   }], pagingMetadata:{count:1}}))
   const response = await getContacts()
   expect(await response.json()).toMatchObject({contacts:[{primaryPhone:'202-555-0123',phones:['202-555-0123','555-0102','555-0103'],
-    phoneDetails: [{phone:'555-0102',countryCode:'CA',e164Phone:null},{phone:'202-555-0123',countryCode:'US',e164Phone:'+12025550123'}]}]})
+    phoneDetails: [
+      {phone:'202-555-0123',countryCode:'US',e164Phone:'+12025550123',primary:true},
+      {phone:'555-0102',countryCode:'CA',e164Phone:null,primary:false},
+      {phone:'555-0103',countryCode:null,e164Phone:null,primary:false},
+    ]}]})
 })
 
 it.each(['field=unsupported&q=foo', 'q=a&q=b', 'q=' + 'x'.repeat(321)])('rejects unsupported search parameters', async query => {

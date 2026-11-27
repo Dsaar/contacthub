@@ -18,6 +18,16 @@ On first setup, create the server configuration file. The command preserves any 
 cp -n server/.env.example server/.env
 ```
 
+1. Sign in as an owner or co-owner of the Wix account that owns your test site. Open **Account Settings → API Keys**, choose **Generate API Key**, and give the key a recognizable name. [API Keys Manager](https://manage.wix.com/account/api-keys) · [Managing Wix API keys](https://support.wix.com/en/article/managing-your-wix-api-keys) · [Account requirements](https://dev.wix.com/docs/api-reference/articles/authentication/about-api-keys)
+2. Under site access, choose **Specific sites** and select only your test site. Under site permissions, select **Wix Contacts & Members**. The REST references list **Read Contacts** for query/get, **Manage Contacts** for create/update, and **Manage Contacts** and **Manage Members** for delete. These are the operation-level permissions covered by the category. [Generate a site-restricted key](https://dev.wix.com/docs/go-headless/authentication/admin/generate-an-api-key) · [Query](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/query-contacts) · [Create](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/create-contact) · [Update](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/update-contact) · [Delete](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/delete-contact)
+3. Choose **Generate Key**, complete Wix's verification, and copy the token while it is displayed. Open the selected site's dashboard and copy the ID immediately after `/dashboard/` in its URL. [Wix site ID instructions](https://dev.wix.com/docs/go-headless/authentication/admin/generate-an-api-key)
+4. Before entering either value, check the ignore rule and Git index from the repository root. The first command should print `server/.env` and the second should print nothing.
+
+```sh
+git check-ignore server/.env
+git ls-files -- server/.env
+```
+
 Set these values privately in `server/.env` or in the server process environment. Existing process variables take precedence. Restart the API after changing the settings.
 
 | Variable | Purpose |
@@ -32,7 +42,17 @@ npm run dev
 
 Open [ContactHub](http://127.0.0.1:5173). Both development servers bind to IPv4 loopback. Ctrl+C stops both. The health route works with blank Wix settings.
 
+For automated verification, run `npm test`, `npm run lint`, `npm run typecheck`, and `npm run build`. Tests use fictional data and mocked Wix requests. With the local servers running, the following command checks live read access and prints only the HTTP status.
+
+```sh
+curl -sS -o /dev/null -w 'HTTP %{http_code}\n' 'http://127.0.0.1:5173/api/contacts?limit=1'
+```
+
+Expect HTTP 200. For a live write check on your selected test site, run `bash scripts/verify-live-crud.sh` in a second terminal with Node 24, Bash, curl, and jq. It creates, edits, and deletes a disposable contact. [Procedure and safeguards](#independent-live-crud-check)
+
 ## Using the dashboard
+
+A contact is a CRM record and can exist with only a name, email, or phone. A site member has a membership account linked to a contact. ContactHub edits CRM details. Member login email changes belong to the Members API, and Wix protects linked member contacts from deletion. [Contacts and members](https://support.wix.com/en/article/site-members-understanding-the-differences-between-contacts-members-and-subscribers) · [Get Contact](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/get-contact)
 
 Open the directory to see contact names, primary email and phone, company, job title, and member status. Select a name to see all available emails and phone numbers. On narrow screens each table row becomes a labeled card. Desktop and mobile examples use fictional browser fixtures. [Desktop preview](docs/screenshots/dashboard-desktop-mocked.png) · [Mobile preview](docs/screenshots/dashboard-mobile-mocked.png)
 
@@ -42,11 +62,11 @@ The integration indicator reflects the directory request to Wix. It shows loadin
 
 **Add and edit** accept first name, last name, email, phone, company, and job title. Creation needs at least a name, email, or phone. The editor fetches the latest individual record and sends only changed fields plus the original revision. Clearing a populated field sends JSON null. On a revision conflict, the draft stays open. Choose **Load latest version**, compare your edits with the displayed Wix values, acknowledge review, and save explicitly. For members, email editing is disabled and the field is excluded from PATCH.
 
-**Delete** requires confirmation naming the selected contact. A lock explains the member restriction. The server still checks Wix's other deletion restrictions. Mutation errors keep the dialog open. Error details include the safe upstream request ID when available. A timeout can leave the outcome of a write unknown. Refresh and check the contact before repeating it.
+**Delete** requires confirmation using the selected name and available primary email and phone. A phone-only contact is identified by its number. A lock explains the member restriction. The server still checks Wix's other deletion restrictions. Mutation errors keep the dialog open. Confirmed changes invalidate the displayed page and count. If reloading fails, the success notice remains alongside the directory error. Refresh retries the read. Error details include the safe upstream request ID when available. A timeout can leave the outcome of a write unknown. Refresh and check the contact before repeating it.
 
 ### Phone representation
 
-The independent backend check observed an international input returned in national display format. Wix documents a display phone, optional ISO alpha-2 country code, and a generated E.164 number when enough valid information is available. The old mapper discarded country and E.164 information on the way to the browser. The API retains the existing display strings and adds optional `phoneDetails` entries containing `phone`, `countryCode`, and `e164Phone` when Wix provides metadata. The dashboard prefers Wix's E.164 value for the main number and exposes the supplied display form and metadata in details. It never derives a dialing prefix from a country label. The user's anonymized verification did not establish which raw metadata Wix supplied in that transaction. [Wix Query Contacts response schema](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/query-contacts) · [Contact V4 object](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/contact-object)
+The directory retains the original `primaryPhone` and `phones` display strings. `phoneDetails` carries each displayable entry in collection order, including the national string, country code, Wix-generated E.164 value, tag, and resolved primary flag. Missing metadata stays null. The directory and editor use the resolved primary entry's E.164 value when supplied. Details show both entries when two countries share the same national digits. A summary-only number can be displayed. Editing an existing number requires a safely identifiable collection entry. The independent backend check observed national formatting after international input. The metadata for that live transaction was unavailable. [Contact V4 object](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/contact-object)
 
 ### Frontend architecture
 
@@ -136,6 +156,7 @@ Example response for create, get or update, using fictional values:
     "firstName": "Alex", "lastName": "Demo",
     "primaryEmail": "alex.demo@example.com", "emails": ["alex.demo@example.com"],
     "primaryPhone": "+12025550174", "phones": ["+12025550174"],
+    "phoneDetails": [{"phone":"+12025550174","countryCode":null,"e164Phone":null,"tag":null,"primary":true}],
     "company": "ContactHub Demo", "jobTitle": "Test Engineer", "isSiteMember": false,
     "createdDate": "2026-01-01T12:00:00Z", "updatedDate": "2026-01-01T12:00:00Z"
   }
@@ -158,13 +179,15 @@ For the create example, the server sends `POST /contacts/v4/contacts` with this 
 }
 ```
 
-PATCH accepts the same six fields and requires a nonnegative int32 `revision`. Omission preserves a field. Explicit JSON `null` clears it. Empty strings, extra properties, and revision-only updates are rejected. For example, local `{"revision":1,"lastName":"Revised","jobTitle":null}` produces the following body for `PATCH /contacts/v4/contacts/{contactId}`. The current V4 REST schema and curl example supply the changed properties through `info` and the revision at the top level. They specify no separate field-mask parameter. [Update Contact](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/update-contact)
+PATCH accepts the same six fields and requires a nonnegative int32 `revision`. Omission preserves a field. Explicit JSON `null` requests a clear. Empty strings, extra properties, and revision-only updates are rejected. For example, local `{"revision":1,"lastName":"Revised","jobTitle":null}` produces the following body for `PATCH /contacts/v4/contacts/{contactId}`. The current V4 REST schema and curl example supply the changed properties through `info` and the revision at the top level. They specify no separate field-mask parameter. [Update Contact](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/update-contact)
 
 ```json
 {"info":{"name":{"last":"Revised"},"jobTitle":""},"revision":1,"allowDuplicates":false}
 ```
 
-Clearing a name component, company, or job title sends an empty string for that property. Changing email or phone rebuilds only that collection from a fresh full GET. The primary is identified by its flag or its unique match with the primary summary. The request preserves the other entries, their order, tags, primary flags and phone country codes. Only writable item properties are submitted. Clearing removes only the primary entry, including sending an empty array if it was the sole entry. Wix may select a remaining entry as primary. An ambiguous list yields a local conflict. Wix can reject clearing the last identifying detail. [Contact object](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/contact-object)
+Clearing a name component, company, or job title sends an empty string for that property. Changing email or phone rebuilds only that collection from a fresh full GET. The primary is identified by its flag or its unique match with the primary summary. The request preserves the other entries, their order, tags, primary flags and phone country codes. Only writable item properties are submitted. For a clear, the outgoing collection omits the primary entry and contains an empty array if it was the sole entry. Wix may select a remaining entry as primary. An ambiguous list yields a local conflict. Wix can reject clearing the last identifying detail. [Contact object](https://dev.wix.com/docs/api-reference/crm/members-contacts/contacts/contacts/contact-v4/contact-object)
+
+Mocked HTTP tests verify the outgoing empty strings, rebuilt arrays, and preservation of unrelated entries. In independent live testing, the user cleared company, job title, and phone and verified that the existing name and email were preserved. Wix's choice of a new primary among remaining numbers is outside the reported live coverage. [Live verification record](docs/TESTING.md#independent-human-verification-of-the-remediation)
 
 ### Revision and member protection
 
@@ -179,7 +202,7 @@ All contact responses use `Cache-Control: no-store`. Errors use `{"error":{"code
 | HTTP | Meaning |
 | --- | --- |
 | 400, 413, 415 | Invalid ID, fields, pagination, JSON, size, or content type |
-| 403 `ORIGIN_REJECTED` | Untrusted write origin, host, or cross-site browser request |
+| 403 `ORIGIN_REJECTED` | Untrusted contact request Host, or a rejected mutation Origin or cross-site browser request |
 | 404 `WIX_NOT_FOUND` | Resource missing at Wix |
 | 409 `REVISION_CONFLICT` | Preflight detected a newer revision or Wix returned 409 `CONTACT_ALREADY_CHANGED`. Refresh and review edits. |
 | 409 `DUPLICATE_CONTACT` | Wix returned 409 `DUPLICATE_CONTACT_EXISTS`. Other 409s retain the generic `WIX_CONFLICT`. |
@@ -188,7 +211,7 @@ All contact responses use `Cache-Control: no-store`. Errors use `{"error":{"code
 | 428 `PROTECTED_CONTACT` | Local member guard or Wix `CANNOT_DELETE_MEMBER`, `CANNOT_DELETE_MEMBER_OWNER_OR_CONTRIBUTOR`, or `CANNOT_DELETE_CONTACT_WITH_BILLING_SUBSCRIPTION` |
 | Other upstream failures | See Troubleshooting above. Unknown 428s use `WIX_PRECONDITION`. After an ambiguous write failure, inspect Wix before trying again. |
 
-This demo binds to loopback. Browser writes require the local host and matching HTTP origin. Local command-line clients may omit Origin. POST and PATCH require uncompressed JSON up to 16 KiB. DELETE takes no body. Public deployment requires dashboard user authentication and per-operation authorization. Possession of the server's Wix key only identifies the integration.
+This demo binds to loopback. Every contact route checks Host against the local allowlist. Browser writes also check the supplied HTTP Origin and reject cross-site Fetch Metadata. Local command-line clients may omit Origin. POST and PATCH require uncompressed JSON up to 16 KiB. DELETE takes no body. Public deployment requires dashboard user authentication and per-operation authorization. Possession of the server's Wix key only identifies the integration.
 
 ## Independent live CRUD check
 

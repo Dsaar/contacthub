@@ -1,3 +1,11 @@
+export interface PhoneDetail {
+  phone: string
+  countryCode: string | null
+  e164Phone: string | null
+  primary?: boolean
+  tag?: string | null
+}
+
 export interface Contact {
   id: string
   revision: number | null
@@ -7,7 +15,7 @@ export interface Contact {
   primaryPhone: string | null
   emails: string[]
   phones: string[]
-  phoneDetails?: { phone: string; countryCode: string | null; e164Phone: string | null }[]
+  phoneDetails?: PhoneDetail[]
   company: string | null
   jobTitle: string | null
   createdDate: string | null
@@ -48,9 +56,29 @@ export function contactName(contact: Contact) {
   return (
     [contact.firstName, contact.lastName].filter(Boolean).join(' ') ||
     contact.primaryEmail ||
+    primaryPhoneDisplay(contact) ||
     'Unnamed contact'
   )
 }
-export function internationalPhone(contact: Contact, phone: string | null) {
-  return contact.phoneDetails?.find((item) => item.phone === phone)?.e164Phone || phone
+// Older responses had display strings and optional, partial metadata.
+export function phoneEntries(contact: Contact): PhoneDetail[] {
+  const details = contact.phoneDetails ?? []
+  if (details.length && details.every(item => item.primary !== undefined)) return details
+  const numbers = [...contact.phones]
+  if (contact.primaryPhone && !numbers.includes(contact.primaryPhone)) numbers.unshift(contact.primaryPhone)
+  return numbers.map(phone => {
+    const matches = details.filter(item => item.phone === phone)
+    const unique = numbers.indexOf(phone) === numbers.lastIndexOf(phone)
+    const detail = unique && matches.length === 1 ? matches[0] : undefined
+    return { phone, countryCode: detail?.countryCode ?? null, e164Phone: detail?.e164Phone ?? null,
+      tag: detail?.tag, primary: unique && phone === contact.primaryPhone }
+  })
+}
+
+export function primaryPhoneDisplay(contact: Contact) {
+  return phoneEntries(contact).find(item => item.primary)?.e164Phone || contact.primaryPhone
+}
+
+export function contactIdentity(contact: Contact) {
+  return [...new Set([contactName(contact), contact.primaryEmail, primaryPhoneDisplay(contact)].filter(Boolean))].join(' · ')
 }

@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { api } from '../src/api'
+const id = '00000000-0000-4000-8000-000000000001'
 afterEach(() => vi.unstubAllGlobals())
 it('uses relative URLs, encodes search, and handles JSON, 204 and structured errors', async () => {
   const fetch = vi
@@ -17,8 +18,8 @@ it('uses relative URLs, encodes search, and handles JSON, 204 and structured err
   expect((await api.health()).status).toBe('ok')
   await api.list({ q: 'A & B', field: 'company', limit: 25, offset: 0 })
   expect(fetch.mock.calls[1]?.[0]).toBe('/api/contacts?limit=25&offset=0&field=company&q=A+%26+B')
-  expect(await api.remove('fictional')).toBeUndefined()
-  await expect(api.get('fictional')).rejects.toMatchObject({
+  expect(await api.remove(id)).toBeUndefined()
+  await expect(api.get(id)).rejects.toMatchObject({
     code: 'WIX_NOT_FOUND',
     requestId: 'test-req',
     upstreamStatus: 404,
